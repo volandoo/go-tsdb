@@ -1,0 +1,14 @@
+{
+    "name": "tsdb-example",
+    "version": "1.0.0",
+    "description": "Example usage of tsdb",
+    "main": "dist/index.js",
+    "scripts": {
+        "build": "tsc",
+        "start": "tsc && node dist/index.js",
+        "clean": "rm -rf dist"
+    },
+    "devDependencies": {
+        "typescript": "^5.3.3"
+    }
+}
