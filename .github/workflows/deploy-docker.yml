@@ -21,7 +21,7 @@ jobs:
       - name: Get latest Docker tag
         id: get_version
         run: |
-          VERSION=$(curl -s "https://hub.docker.com/v2/repositories/volandoo/tsdb/tags" | jq -r '[.results[].name | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort | last' || echo "1.0.0")
+          VERSION=$(curl -s "https://hub.docker.com/v2/repositories/pec1985/tsdb/tags" | jq -r '[.results[].name | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort | last' || echo "1.0.0")
           NEW_VERSION=$(echo $VERSION | awk -F. '{print $1"."$2"."$3+1}')
           echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
           echo "Latest version: $VERSION, Next version: $NEW_VERSION"
@@ -30,5 +30,5 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: "{{defaultContext}}:src"
-          tags: volandoo/tsdb:latest,volandoo/tsdb:${{ env.NEW_VERSION }}
+          tags: pec1985/tsdb:latest,pec1985/tsdb:${{ env.NEW_VERSION }}
           push: true
