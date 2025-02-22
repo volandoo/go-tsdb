@@ -1,0 +1,35 @@
+name: Deploy Docker
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Get latest Docker tag
+        id: get_version
+        run: |
+          VERSION=$(curl -s "https://hub.docker.com/v2/repositories/volandoo/tsdb/tags" | jq -r '[.results[].name | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort | last' || echo "1.0.0")
+          NEW_VERSION=$(echo $VERSION | awk -F. '{print $1"."$2"."$3+1}')
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+          echo "Latest version: $VERSION, Next version: $NEW_VERSION"
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v3
+        with:
+          context: src
+          file: src/Dockerfile
+          tags: volandoo/tsdb:latest,volandoo/tsdb:${{ env.NEW_VERSION }}
+          push: true
