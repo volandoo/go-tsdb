@@ -13,8 +13,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var secretKey = "8bdc9a25-84ef-4463-9bbd-5fcdbab4daa7"
-
 func setupDatabases() map[string]*Database {
 	databases := make(map[string]*Database)
 
@@ -41,6 +39,11 @@ func setupDatabases() map[string]*Database {
 }
 
 func main() {
+
+	secretKey := os.Getenv("SECRET_KEY")
+	if secretKey == "" {
+		log.Fatal("SECRET_KEY is not set")
+	}
 
 	databases := setupDatabases()
 	for _, db := range databases {

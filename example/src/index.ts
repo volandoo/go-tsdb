@@ -76,7 +76,7 @@ type TSDBQueryUserMessageResponse = {
     records: TSDBRecord[];
 }
 
-const secretKey = "8bdc9a25-84ef-4463-9bbd-5fcdbab4daa7";
+const secretKey = process.env.SECRET_KEY;
 const randomId = () => Math.random().toString(36).substring(2, 15);
 const insert = async (data: TSDBInsertMessageRequest[]) => {
     const res = await sendMessage<TSDBInsertMessageResponse>(client, {
