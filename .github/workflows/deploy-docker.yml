@@ -25,11 +25,10 @@ jobs:
           NEW_VERSION=$(echo $VERSION | awk -F. '{print $1"."$2"."$3+1}')
           echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
           echo "Latest version: $VERSION, Next version: $NEW_VERSION"
-
+      
       - name: Build and Push Docker Image
-        uses: docker/build-push-action@v3
+        uses: docker/build-push-action@v6
         with:
-          context: src
-          file: src/Dockerfile
+          context: "{{defaultContext}}:src"
           tags: volandoo/tsdb:latest,volandoo/tsdb:${{ env.NEW_VERSION }}
           push: true
