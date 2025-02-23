@@ -73,14 +73,17 @@ func main() {
 			var resp []byte
 			if *req.MessageType == "api-key" {
 				apiKey = *req.Data
+				if apiKey != secretKey {
+					log.Println("Invalid API key")
+					break
+				}
 				resp, err = json.Marshal(dataPayloadResponse{Id: *req.Id})
 				if err != nil {
 					log.Println("Error processing message:", err)
 					break
 				}
-
 			} else {
-				if apiKey == "" {
+				if apiKey != secretKey {
 					log.Println("API key is required")
 					break
 				}
@@ -90,9 +93,8 @@ func main() {
 					break
 				}
 			}
-			response, _ := json.Marshal(resp)
-			conn.WriteMessage(websocket.TextMessage, response)
-			log.Println("Sent response", string(response))
+			conn.WriteMessage(websocket.TextMessage, resp)
+			log.Println("Sent response", string(resp))
 		}
 	}
 
