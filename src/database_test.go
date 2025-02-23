@@ -138,17 +138,17 @@ func TestGetLatestRecordUpTo(t *testing.T) {
 
 	createRecords(db, "1", 1500)
 
-	record := db.GetLatestRecordUpTo("1", 1500)
+	record := db.getLatestRecordUpTo("1", 1500)
 	if record.Data != "test_1500" {
 		t.Errorf("Expected test_1500, got %s", record.Data)
 	}
 
-	record = db.GetLatestRecordUpTo("1", 1501)
+	record = db.getLatestRecordUpTo("1", 1501)
 	if record.Data != "test_1500" {
 		t.Errorf("Expected test_1500, got %s", record.Data)
 	}
 
-	record = db.GetLatestRecordUpTo("1", 1499)
+	record = db.getLatestRecordUpTo("1", 1499)
 	if record.Data != "test_1499" {
 		t.Errorf("Expected test_1499, got %s", record.Data)
 	}

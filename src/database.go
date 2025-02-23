@@ -104,10 +104,8 @@ func (db *Database) Insert(uid string, ts int64, data string) {
 	userData.Records = append(records[:left], append([]Record{record}, records[left:]...)...)
 }
 
-// GetLatestRecordUpTo retrieves the latest record up to a given timestamp for a user
-func (db *Database) GetLatestRecordUpTo(uid string, maxTimestamp int64) *Record {
-	db.mu.RLock()
-	defer db.mu.RUnlock()
+// getLatestRecordUpTo retrieves the latest record up to a given timestamp for a user
+func (db *Database) getLatestRecordUpTo(uid string, maxTimestamp int64) *Record {
 
 	if userData, exists := db.data[uid]; exists {
 		userData.mu.RLock()
@@ -141,7 +139,7 @@ func (db *Database) GetAllLatestRecordsUpTo(maxTimestamp int64) map[string]*Reco
 	latestRecords := make(map[string]*Record)
 
 	for uid := range db.data {
-		record := db.GetLatestRecordUpTo(uid, maxTimestamp)
+		record := db.getLatestRecordUpTo(uid, maxTimestamp)
 		if record != nil {
 			latestRecords[uid] = record
 		}

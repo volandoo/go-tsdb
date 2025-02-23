@@ -94,8 +94,9 @@ func main() {
 				}
 			}
 			conn.WriteMessage(websocket.TextMessage, resp)
-			log.Println("Sent response", string(resp))
+			log.Println("Sent response", len(resp))
 		}
+		log.Println("WebSocket connection closed")
 	}
 
 	handleInsert := func(id string, message []byte) ([]byte, error) {
