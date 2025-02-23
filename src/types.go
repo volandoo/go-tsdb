@@ -48,7 +48,7 @@ type queryUserResponse struct {
 
 type queryDeleteUser struct {
 	Uid        *string `json:"uid"`
-	Collection *string `json:"collection"`
+	Collection string  `json:"collection"`
 }
 
 var upgrader = websocket.Upgrader{

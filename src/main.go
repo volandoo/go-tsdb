@@ -169,10 +169,13 @@ func main() {
 		if queryMessage.Uid == nil {
 			return nil, errors.New("uid is required")
 		}
-		if queryMessage.Collection == nil {
-			return nil, errors.New("collection is required")
+		if queryMessage.Collection == "" {
+			for _, db := range databases {
+				db.Delete(*queryMessage.Uid)
+			}
+			return json.Marshal(dataPayloadResponse{Id: id})
 		}
-		if db := databases[*queryMessage.Collection]; db != nil {
+		if db := databases[queryMessage.Collection]; db != nil {
 			db.Delete(*queryMessage.Uid)
 			return json.Marshal(dataPayloadResponse{Id: id})
 		}
