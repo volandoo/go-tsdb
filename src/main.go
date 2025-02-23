@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -58,22 +57,42 @@ func main() {
 			return
 		}
 		defer conn.Close()
-
+		var apiKey string
 		for {
-			_, message, err := conn.ReadMessage()
+			_, msg, err := conn.ReadMessage()
 			if err != nil {
 				log.Println("Error reading message:", err)
 				break
 			}
-			started := time.Now()
-			response, err := callback(message)
-			if err != nil {
+
+			var req request
+			if err := json.Unmarshal(msg, &req); err != nil {
 				log.Println("Error processing message:", err)
 				break
 			}
+			var resp []byte
+			if *req.MessageType == "api-key" {
+				apiKey = *req.Data
+				resp, err = json.Marshal(dataPayloadResponse{Id: *req.Id})
+				if err != nil {
+					log.Println("Error processing message:", err)
+					break
+				}
+
+			} else {
+				if apiKey == "" {
+					log.Println("API key is required")
+					break
+				}
+				resp, err = callback(req)
+				if err != nil {
+					log.Println("Error processing message:", err)
+					break
+				}
+			}
+			response, _ := json.Marshal(resp)
 			conn.WriteMessage(websocket.TextMessage, response)
-			elapsed := time.Since(started)
-			log.Println("Processed message in", elapsed)
+			log.Println("Sent response", string(response))
 		}
 	}
 
@@ -140,20 +159,31 @@ func main() {
 		return json.Marshal(queryUserResponse{Id: id, Records: []Record{}})
 	}
 
+	handleDeleteUser := func(id string, message []byte) ([]byte, error) {
+		var queryMessage queryDeleteUser
+		if err := json.Unmarshal(message, &queryMessage); err != nil {
+			return nil, err
+		}
+		if queryMessage.Uid == nil {
+			return nil, errors.New("uid is required")
+		}
+		if queryMessage.Collection == nil {
+			return nil, errors.New("collection is required")
+		}
+		if db := databases[*queryMessage.Collection]; db != nil {
+			db.Delete(*queryMessage.Uid)
+			return json.Marshal(dataPayloadResponse{Id: id})
+		}
+		return json.Marshal(dataPayloadResponse{Id: id})
+	}
+
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			w.WriteHeader(http.StatusNotFound)
 			w.Write([]byte("Not found"))
 			return
 		}
-		onWebSocketMessage(w, r, func(msg []byte) ([]byte, error) {
-			var message request
-			if err := json.Unmarshal(msg, &message); err != nil {
-				return nil, err
-			}
-			if *message.SecretKey != secretKey {
-				return nil, errors.New("invalid secret key")
-			}
+		onWebSocketMessage(w, r, func(message request) ([]byte, error) {
 			if *message.MessageType == "insert" {
 				return handleInsert(*message.Id, []byte(*message.Data))
 			}
@@ -162,6 +192,9 @@ func main() {
 			}
 			if *message.MessageType == "query-user" {
 				return handleQueryUser(*message.Id, []byte(*message.Data))
+			}
+			if *message.MessageType == "delete-user" {
+				return handleDeleteUser(*message.Id, []byte(*message.Data))
 			}
 			return nil, errors.New("invalid message type")
 		})

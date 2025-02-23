@@ -5,7 +5,6 @@ import "github.com/gorilla/websocket"
 // all requests have an id, secret key, message type and data
 type request struct {
 	Id          *string `json:"id"`
-	SecretKey   *string `json:"secretKey"`
 	MessageType *string `json:"type"`
 	Data        *string `json:"data"`
 }
@@ -47,9 +46,14 @@ type queryUserResponse struct {
 	Records []Record `json:"records"`
 }
 
+type queryDeleteUser struct {
+	Uid        *string `json:"uid"`
+	Collection *string `json:"collection"`
+}
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 }
 
-type callback func(message []byte) ([]byte, error)
+type callback func(message request) ([]byte, error)
