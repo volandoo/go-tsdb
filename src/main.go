@@ -141,13 +141,11 @@ func main() {
 	}
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		log.Println("1 WebSocket connection received", r.URL.Path)
 		if r.URL.Path != "/" {
 			w.WriteHeader(http.StatusNotFound)
 			w.Write([]byte("Not found"))
 			return
 		}
-		log.Println("2 WebSocket connection received", r.URL.Path)
 		onWebSocketMessage(w, r, func(msg []byte) ([]byte, error) {
 			var message request
 			if err := json.Unmarshal(msg, &message); err != nil {

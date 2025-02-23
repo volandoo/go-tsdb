@@ -251,7 +251,11 @@ func (db *Database) Flush() error {
 		if _, err := os.Stat(".data"); os.IsNotExist(err) {
 			os.Mkdir(".data", 0755)
 		}
-		return os.WriteFile(".data/"+db.name+".json", data, 0644)
+		err = os.WriteFile(".data/"+db.name+".json", data, 0644)
+		if err != nil {
+			log.Println("Error flushing data to disk", err)
+		}
+		return err
 	}
 	log.Println("No data to flush")
 	return nil
