@@ -25,6 +25,7 @@ type dataPayloadResponse struct {
 type query struct {
 	Ts         *int64  `json:"ts"`
 	Collection *string `json:"collection"`
+	Uid        string  `json:"uid"`
 }
 
 // query responses have a list of records

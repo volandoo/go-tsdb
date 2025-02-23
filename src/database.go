@@ -132,11 +132,18 @@ func (db *Database) getLatestRecordUpTo(uid string, maxTimestamp int64) *Record 
 }
 
 // GetAllLatestRecordsUpTo retrieves the latest records for all users up to a given timestamp
-func (db *Database) GetAllLatestRecordsUpTo(maxTimestamp int64) map[string]*Record {
+func (db *Database) GetAllLatestRecordsUpTo(uid string, maxTimestamp int64) map[string]*Record {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 
 	latestRecords := make(map[string]*Record)
+	if uid != "" {
+		record := db.getLatestRecordUpTo(uid, maxTimestamp)
+		if record != nil {
+			latestRecords[uid] = record
+		}
+		return latestRecords
+	}
 
 	for uid := range db.data {
 		record := db.getLatestRecordUpTo(uid, maxTimestamp)

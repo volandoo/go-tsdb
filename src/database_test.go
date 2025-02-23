@@ -21,7 +21,7 @@ func TestGetLatest(t *testing.T) {
 	createRecords(db, "2", 12)
 	createRecords(db, "3", 9)
 
-	records := db.GetAllLatestRecordsUpTo(15)
+	records := db.GetAllLatestRecordsUpTo("", 15)
 	if len(records) != 3 {
 		t.Errorf("Expected 3 records, got %d", len(records))
 	}
@@ -47,7 +47,7 @@ func TestGetLatestUpTo(t *testing.T) {
 	createRecords(db, "2", 12)
 	createRecords(db, "3", 9)
 
-	records := db.GetAllLatestRecordsUpTo(3)
+	records := db.GetAllLatestRecordsUpTo("", 3)
 	if len(records) != 3 {
 		t.Errorf("Expected 3 records, got %d", len(records))
 	}

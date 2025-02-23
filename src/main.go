@@ -132,7 +132,7 @@ func main() {
 			return nil, errors.New("collection is required")
 		}
 		if db := databases[*queryMessage.Collection]; db != nil {
-			response := db.GetAllLatestRecordsUpTo(*queryMessage.Ts)
+			response := db.GetAllLatestRecordsUpTo(queryMessage.Uid, *queryMessage.Ts)
 			return json.Marshal(queryResponse{Id: id, Records: response})
 		}
 		return json.Marshal(queryResponse{Id: id, Records: map[string]*Record{}})
