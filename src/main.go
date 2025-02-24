@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -205,6 +206,19 @@ func main() {
 			return nil, errors.New("invalid message type")
 		})
 	})
+
+	// timer to flush to disk every one minute
+	go func() {
+		for {
+			log.Println("Flushing data to disk")
+			for _, db := range databases {
+				db.DeleteOld()
+				db.Flush()
+			}
+			// sleep for 1 minute
+			<-time.After(1 * time.Minute)
+		}
+	}()
 
 	log.Println("Listening on port 1985")
 	if err := http.ListenAndServe("0.0.0.0:1985", nil); err != nil {

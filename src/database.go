@@ -40,21 +40,6 @@ func NewDatabase(name string, ttl int64) *Database {
 	if err := db.Load(); err != nil {
 		log.Fatal(err)
 	}
-	// Goroutine for periodic flushing
-	ticker := time.NewTicker(1 * time.Minute)
-	go func() {
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				db.DeleteOld()
-				db.Flush()
-			case <-db.stopChan:
-				log.Println("Stopping database flush goroutine")
-				return
-			}
-		}
-	}()
 
 	return db
 }
@@ -240,31 +225,30 @@ func (db *Database) DeleteOld() {
 
 // flush to disk
 func (db *Database) Flush() error {
+
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 
-	if db.dataLength == 0 {
-		log.Println("No data to flush")
-		return nil
-	}
-
-	file, err := os.Create(".data/" + db.name + ".json")
+	// write to disk using db.name as the filename .json
+	data, err := json.Marshal(db.data)
 	if err != nil {
-		log.Println("Error creating file", err)
 		return err
 	}
-	defer file.Close()
-
-	encoder := json.NewEncoder(file)
-	err = encoder.Encode(db.data)
-	if err != nil {
-		log.Println("Error encoding JSON", err)
+	if db.dataLength != len(data) {
+		db.dataLength = len(data)
+		log.Println("Flushing data to disk", db.dataLength)
+		// check if data directory exists
+		if _, err := os.Stat(".data"); os.IsNotExist(err) {
+			os.Mkdir(".data", 0755)
+		}
+		err = os.WriteFile(".data/"+db.name+".json", data, 0644)
+		data = nil
+		if err != nil {
+			log.Println("Error flushing data to disk", err)
+		}
 		return err
 	}
-
-	db.dataLength = 0
-	log.Println("Data flushed successfully")
-
+	log.Println("No data to flush")
 	return nil
 }
 
