@@ -41,7 +41,7 @@ func NewDatabase(name string, ttl int64) *Database {
 		log.Fatal(err)
 	}
 	// Goroutine for periodic flushing
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(1 * time.Minute)
 	go func() {
 		defer ticker.Stop()
 		for {
