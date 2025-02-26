@@ -1,227 +1,64 @@
 package main
 
 import (
-	"encoding/json"
-	"errors"
 	"log"
-	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/spf13/cobra"
 )
 
-func setupDatabases() map[string]*Database {
-	databases := make(map[string]*Database)
-
-	log.Println("Setting up databases")
-	// check if .data directory exists
-	if _, err := os.Stat(".data"); os.IsNotExist(err) {
-		os.Mkdir(".data", 0755)
+func main() {
+	rootCmd := &cobra.Command{
+		Use:   "start",
+		Short: "Start the server",
+		Long:  `Start the server with specific arguments`,
 	}
 
-	files, err := filepath.Glob(".data/*.json")
-	log.Println("Found", len(files), "databases")
+	rootCmd.Flags().StringP("secret-key", "s", "", "The secret key for the server")
+	rootCmd.Flags().StringArrayP("collection", "c", []string{}, "The collection names followed by colon and ttl in minutes. Accepts wildcards. Example: -c 'public:60' -c 'group.*:120'")
+	rootCmd.Flags().StringP("storage-dir", "d", "", "The directory to store the data, if not set, data will not be stored on disk")
+	rootCmd.Flags().IntP("storage-interval", "i", 0, "The interval to flush the data to the storage in seconds, if not set, data will not be flushed to the storage")
+
+	rootCmd.Execute()
+
+	secretKey, err := rootCmd.Flags().GetString("secret-key")
 	if err != nil {
 		log.Fatal(err)
 	}
-	for _, file := range files {
-
-		// file without ./data and .json
-		dbName := strings.TrimPrefix(file, ".data/")
-		dbName = strings.TrimSuffix(dbName, ".json")
-		databases[dbName] = NewDatabase(dbName, 12)
-		log.Println("Loaded", dbName)
+	collections, err := rootCmd.Flags().GetStringArray("collection")
+	if err != nil {
+		log.Fatal(err)
 	}
-	return databases
-}
+	storageDir, err := rootCmd.Flags().GetString("storage-dir")
+	if err != nil {
+		log.Fatal(err)
+	}
+	storageInterval, err := rootCmd.Flags().GetInt("storage-interval")
+	if err != nil {
+		log.Fatal(err)
+	}
 
-func main() {
-
-	secretKey := os.Getenv("SECRET_KEY")
 	if secretKey == "" {
-		log.Fatal("SECRET_KEY is not set")
+		log.Fatal("secret-key is not set")
 	}
 
-	databases := setupDatabases()
-	for _, db := range databases {
-		defer db.Stop()
+	if len(collections) == 0 {
+		log.Fatal("collection is not set")
 	}
 
-	onWebSocketMessage := func(w http.ResponseWriter, r *http.Request, callback callback) {
-		log.Println("WebSocket connection received")
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			log.Println("WebSocket upgrade failed:", err)
-			return
+	// check that collections items have a ttl
+	for _, collection := range collections {
+		parts := strings.Split(collection, ":")
+		if len(parts) != 2 {
+			log.Fatal("collection must have a ttl", collection)
 		}
-		defer conn.Close()
-		var apiKey string
-		for {
-			_, msg, err := conn.ReadMessage()
-			if err != nil {
-				log.Println("Error reading message:", err)
-				break
-			}
-
-			var req request
-			if err := json.Unmarshal(msg, &req); err != nil {
-				log.Println("Error processing message:", err)
-				break
-			}
-			var resp []byte
-			if *req.MessageType == "api-key" {
-				apiKey = *req.Data
-				if apiKey != secretKey {
-					log.Println("Invalid API key")
-					break
-				}
-				resp, err = json.Marshal(dataPayloadResponse{Id: *req.Id})
-				if err != nil {
-					log.Println("Error processing message:", err)
-					break
-				}
-			} else {
-				if apiKey != secretKey {
-					log.Println("API key is required")
-					break
-				}
-				resp, err = callback(req)
-				if err != nil {
-					log.Println("Error processing message:", err)
-					break
-				}
-			}
-			conn.WriteMessage(websocket.TextMessage, resp)
-			log.Println("Sent response", len(resp))
-		}
-		log.Println("WebSocket connection closed")
 	}
+	log.Printf("secret-key: %s", secretKey)
+	log.Printf("collections: %v", collections)
+	log.Printf("storage-dir: %s", storageDir)
+	log.Printf("storage-interval: %d", storageInterval)
 
-	handleInsert := func(id string, message []byte) ([]byte, error) {
-		var messages []dataPayload
-		if err := json.Unmarshal(message, &messages); err != nil {
-			return nil, err
-		}
-		for _, msg := range messages {
-			if msg.Ts == nil || msg.Uid == nil || msg.Data == nil || msg.Collection == nil {
-				return nil, errors.New("invalid message")
-			}
-			if *msg.Collection == "public" || *msg.Collection == "private" || strings.HasPrefix(*msg.Collection, "event.") || strings.HasPrefix(*msg.Collection, "group.") {
-				if _, ok := databases[*msg.Collection]; !ok {
-					databases[*msg.Collection] = NewDatabase(*msg.Collection, 12)
-				}
-				databases[*msg.Collection].Insert(*msg.Uid, *msg.Ts, *msg.Data)
-			} else {
-				return nil, errors.New("invalid collection")
-			}
-		}
-		return json.Marshal(dataPayloadResponse{Id: id})
-	}
-
-	handleQuery := func(id string, message []byte) ([]byte, error) {
-		var queryMessage query
-		if err := json.Unmarshal(message, &queryMessage); err != nil {
-			return nil, err
-		}
-		if queryMessage.Ts == nil {
-			return nil, errors.New("ts is required")
-		}
-		if queryMessage.Collection == nil {
-			return nil, errors.New("collection is required")
-		}
-		if db := databases[*queryMessage.Collection]; db != nil {
-			response := db.GetAllLatestRecordsUpTo(queryMessage.Uid, *queryMessage.Ts)
-			return json.Marshal(queryResponse{Id: id, Records: response})
-		}
-		return json.Marshal(queryResponse{Id: id, Records: map[string]*Record{}})
-	}
-
-	handleQueryUser := func(id string, message []byte) ([]byte, error) {
-		var queryUserMessage queryUser
-		if err := json.Unmarshal(message, &queryUserMessage); err != nil {
-			return nil, err
-		}
-		if queryUserMessage.Uid == nil {
-			return nil, errors.New("uid is required")
-		}
-		if queryUserMessage.From == nil {
-			return nil, errors.New("from is required")
-		}
-		if queryUserMessage.To == nil {
-			return nil, errors.New("to is required")
-		}
-		if queryUserMessage.Collection == nil {
-			return nil, errors.New("collection is required")
-		}
-		if db := databases[*queryUserMessage.Collection]; db != nil {
-			response := db.GetRecordsForUser(*queryUserMessage.Uid, *queryUserMessage.From, *queryUserMessage.To)
-			return json.Marshal(queryUserResponse{Id: id, Records: response})
-		}
-		return json.Marshal(queryUserResponse{Id: id, Records: []Record{}})
-	}
-
-	handleDeleteUser := func(id string, message []byte) ([]byte, error) {
-		var queryMessage queryDeleteUser
-		if err := json.Unmarshal(message, &queryMessage); err != nil {
-			return nil, err
-		}
-		if queryMessage.Uid == nil {
-			return nil, errors.New("uid is required")
-		}
-		if queryMessage.Collection == "" {
-			for _, db := range databases {
-				db.Delete(*queryMessage.Uid)
-			}
-			return json.Marshal(dataPayloadResponse{Id: id})
-		}
-		if db := databases[queryMessage.Collection]; db != nil {
-			db.Delete(*queryMessage.Uid)
-			return json.Marshal(dataPayloadResponse{Id: id})
-		}
-		return json.Marshal(dataPayloadResponse{Id: id})
-	}
-
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			w.WriteHeader(http.StatusNotFound)
-			w.Write([]byte("Not found"))
-			return
-		}
-		onWebSocketMessage(w, r, func(message request) ([]byte, error) {
-			if *message.MessageType == "insert" {
-				return handleInsert(*message.Id, []byte(*message.Data))
-			}
-			if *message.MessageType == "query" {
-				return handleQuery(*message.Id, []byte(*message.Data))
-			}
-			if *message.MessageType == "query-user" {
-				return handleQueryUser(*message.Id, []byte(*message.Data))
-			}
-			if *message.MessageType == "delete-user" {
-				return handleDeleteUser(*message.Id, []byte(*message.Data))
-			}
-			return nil, errors.New("invalid message type")
-		})
-	})
-
-	// timer to flush to disk every one minute
-	go func() {
-		for {
-			log.Println("Flushing data to disk")
-			for _, db := range databases {
-				db.DeleteOld()
-				db.Flush()
-			}
-			// sleep for 1 minute
-			<-time.After(1 * time.Minute)
-		}
-	}()
-
-	log.Println("Listening on port 1985")
-	if err := http.ListenAndServe("0.0.0.0:1985", nil); err != nil {
+	if err := startServer(secretKey, collections, storageDir, storageInterval); err != nil {
 		log.Fatal(err)
 	}
 }

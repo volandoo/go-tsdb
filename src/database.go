@@ -1,40 +1,46 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
+	"path"
+	"strings"
 	"sync"
 	"time"
 )
 
 type Record struct {
-	Timestamp int64  `json:"ts"`
-	Data      string `json:"data"`
+	Timestamp int64        `json:"ts"`
+	Data      bytes.Buffer `json:"data"`
+	isNew     bool
 }
 
-type UserData struct {
-	Records []Record     `json:"records"`
-	mu      sync.RWMutex // To protect concurrent access to Records
+type RecordHeader struct {
+	hasChanged bool
+	records    []Record
 }
 
 type Database struct {
-	data       map[string]*UserData
-	dataLength int
+	data       map[string]RecordHeader
 	name       string
 	ttl        int64 // hours
 	stopChan   chan struct{}
 	mu         sync.RWMutex // To protect access to data
+	storageDir string
 }
 
 // NewDatabase creates a new instance of Database
-func NewDatabase(name string, ttl int64) *Database {
+func NewDatabase(name string, storageDir string, ttl int64) *Database {
 
 	db := &Database{
-		data:     make(map[string]*UserData),
-		name:     name,
-		ttl:      ttl,
-		stopChan: make(chan struct{}),
+		data:       make(map[string]RecordHeader),
+		name:       name,
+		ttl:        ttl,
+		stopChan:   make(chan struct{}),
+		storageDir: storageDir,
 	}
 
 	if err := db.Load(); err != nil {
@@ -44,164 +50,210 @@ func NewDatabase(name string, ttl int64) *Database {
 	return db
 }
 
-// Insert inserts a new record for a user, maintaining chronological order
-func (db *Database) Insert(uid string, ts int64, data string) {
-	db.mu.Lock()
-	defer db.mu.Unlock()
-
+func (db *Database) insert(uid string, ts int64, data bytes.Buffer, isNew bool) {
 	// Create the record
-	record := Record{Timestamp: ts, Data: data}
+	record := Record{
+		Timestamp: ts,
+		Data:      data,
+		isNew:     isNew,
+	}
 
 	// Ensure the user's data slice exists
 	if _, exists := db.data[uid]; !exists {
-		db.data[uid] = &UserData{}
-	}
-
-	userData := db.data[uid]
-	userData.mu.Lock()
-	defer userData.mu.Unlock()
-
-	// Insert the record in the correct position in the slice (chronologically sorted)
-	records := userData.Records
-	n := len(records)
-
-	// If no records, just append
-	if n == 0 {
-		userData.Records = append(records, record)
+		db.data[uid] = RecordHeader{
+			hasChanged: isNew,
+			records:    []Record{record},
+		}
 		return
 	}
 
+	records := db.data[uid]
+	// Insert the record in the correct position in the slice (chronologically sorted)
+	n := len(records.records)
 	// Binary search for the correct insertion point
 	left, right := 0, n-1
 	for left <= right {
 		mid := (left + right) / 2
-		if records[mid].Timestamp < ts {
+		if records.records[mid].Timestamp < ts {
 			left = mid + 1
-		} else if records[mid].Timestamp > ts {
+		} else if records.records[mid].Timestamp > ts {
 			right = mid - 1
 		} else {
-			records[mid] = record
+			records.records[mid] = record
 			return
 		}
 	}
 
 	// If not found, insert at the found index
-	userData.Records = append(records[:left], append([]Record{record}, records[left:]...)...)
+	db.data[uid] = RecordHeader{
+		hasChanged: isNew,
+		records:    append(records.records[:left], append([]Record{record}, records.records[left:]...)...),
+	}
 }
 
-// getLatestRecordUpTo retrieves the latest record up to a given timestamp for a user
-func (db *Database) getLatestRecordUpTo(uid string, maxTimestamp int64) *Record {
+// Insert inserts a new record for a user, maintaining chronological order
+func (db *Database) Insert(uid string, ts int64, data bytes.Buffer) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	db.insert(uid, ts, data, true)
+}
 
-	if userData, exists := db.data[uid]; exists {
-		userData.mu.RLock()
-		defer userData.mu.RUnlock()
+// getEarliestUserRecordIndex performs a binary search to find the index of the earliest record
+// that has a timestamp >= minTimestamp. The records are assumed to be sorted by timestamp.
+//
+// Edge cases:
+//  1. If minTimestamp is less than all records' timestamps, returns 0 (first record)
+//     since all records will be >= minTimestamp
+//  2. If minTimestamp is greater than all records' timestamps, returns -1 since no records
+//     will be >= minTimestamp
+//  3. If no records exist for the user, returns -1
+//  4. If multiple records have the same timestamp >= minTimestamp, returns the leftmost/earliest one
+func (db *Database) getEarliestUserRecordIndex(uid string, minTimestamp int64) int {
 
+	if records, exists := db.data[uid]; exists {
+		// Binary search for the earliest record after minTimestamp
+		left, right := 0, len(records.records)-1
+		var earliestIndex int
+		for left <= right {
+			mid := (left + right) / 2
+			if records.records[mid].Timestamp >= minTimestamp {
+				earliestIndex = mid
+				right = mid - 1
+			} else {
+				left = mid + 1
+			}
+		}
+
+		return earliestIndex
+	}
+	return -1
+}
+
+// getLatestUserRecordIndex performs a binary search to find the index of the latest record
+// that has a timestamp <= maxTimestamp. The records are assumed to be sorted by timestamp.
+//
+// Edge cases:
+//  1. If maxTimestamp is greater than all records' timestamps, returns the last record's index
+//     since it will be the latest record <= maxTimestamp
+//  2. If maxTimestamp is less than the first record's timestamp, returns -1 since no records
+//     will be <= maxTimestamp
+//  3. If no records exist for the user, returns -1
+//  4. If multiple records have the same timestamp <= maxTimestamp, returns the rightmost/latest one
+func (db *Database) getLatestUserRecordIndex(uid string, maxTimestamp int64) int {
+
+	if records, exists := db.data[uid]; exists {
 		// Binary search for the latest record up to maxTimestamp
-		records := userData.Records
-		left, right := 0, len(records)-1
-		var latest *Record
+		left, right := 0, len(records.records)-1
+		var latestIndex int
 
 		for left <= right {
 			mid := (left + right) / 2
-			if records[mid].Timestamp <= maxTimestamp {
-				latest = &records[mid]
+			if records.records[mid].Timestamp <= maxTimestamp {
+				latestIndex = mid
 				left = mid + 1
 			} else {
 				right = mid - 1
 			}
 		}
 
-		return latest
+		return latestIndex
 	}
-	return nil
+	return -1
 }
 
-// GetAllLatestRecordsUpTo retrieves the latest records for all users up to a given timestamp
-func (db *Database) GetAllLatestRecordsUpTo(uid string, maxTimestamp int64) map[string]*Record {
+func (db *Database) GetLatestRecordForUser(uid string, maxTimestamp int64) *Record {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	index := db.getLatestUserRecordIndex(uid, maxTimestamp)
+	if index == -1 {
+		return nil
+	}
+	return &db.data[uid].records[index]
+}
+
+func (db *Database) GetEarliestRecordForUser(uid string, minTimestamp int64) *Record {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	index := db.getEarliestUserRecordIndex(uid, minTimestamp)
+	if index == -1 {
+		return nil
+	}
+	return &db.data[uid].records[index]
+}
+
+func (db *Database) GetAllLatestRecords(maxTimestamp int64) map[string]*Record {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 
 	latestRecords := make(map[string]*Record)
-	if uid != "" {
-		record := db.getLatestRecordUpTo(uid, maxTimestamp)
-		if record != nil {
-			latestRecords[uid] = record
-		}
-		return latestRecords
-	}
-
 	for uid := range db.data {
-		record := db.getLatestRecordUpTo(uid, maxTimestamp)
-		if record != nil {
-			latestRecords[uid] = record
+		index := db.getLatestUserRecordIndex(uid, maxTimestamp)
+		if index == -1 {
+			continue
 		}
+		latestRecords[uid] = &db.data[uid].records[index]
 	}
-
 	return latestRecords
 }
 
-// get records for a user from timestamp to timestamp
-func (db *Database) GetRecordsForUser(uid string, fromTimestamp int64, toTimestamp int64) []Record {
-
-	// check that fromTimestamp is older than toTimestamp
-	if fromTimestamp > toTimestamp {
+// GetRecordsForUser returns all records for a given user between from and to
+func (db *Database) GetRecordsForUser(uid string, from int64, to int64) []Record {
+	// check that from is older than to
+	if from > to {
+		// return nil if timestamps are in wrong order
+		log.Println("GetRecordsForUser: from is older than to", uid, from, to)
 		return nil
 	}
 
+	// acquire read lock to safely access data
 	db.mu.RLock()
+	// defer unlock until function returns
 	defer db.mu.RUnlock()
 
-	// Check if user exists
-	userData, exists := db.data[uid]
-	if !exists || len(userData.Records) == 0 {
+	// Check if user exists in database
+	records, exists := db.data[uid]
+	// return nil if user not found
+	if !exists {
+		// return empty slice if user not found
 		return nil
 	}
 
-	userData.mu.RLock()
-	defer userData.mu.RUnlock()
-
-	records := userData.Records
-	n := len(records)
-
-	// Binary search for the first record >= fromTimestamp
-	left, right := 0, n-1
-	firstIndex := n // Default to out-of-bounds index
-
-	for left <= right {
-		mid := (left + right) / 2
-		if records[mid].Timestamp < fromTimestamp {
-			left = mid + 1
-		} else {
-			firstIndex = mid
-			right = mid - 1
-		}
+	// Check if there are any records
+	if len(records.records) == 0 {
+		// return empty slice if no records exist
+		return []Record{}
 	}
 
-	// Binary search for the last record <= toTimestamp
-	left, right = firstIndex, n-1
-	lastIndex := -1 // Default to out-of-bounds index
+	// get index of earliest record after from
+	startIndex := db.getEarliestUserRecordIndex(uid, from)
+	// get index of latest record before to
+	endIndex := db.getLatestUserRecordIndex(uid, to)
 
-	for left <= right {
-		mid := (left + right) / 2
-		if records[mid].Timestamp > toTimestamp {
-			right = mid - 1
-		} else {
-			lastIndex = mid
-			left = mid + 1
-		}
+	// return nil if either index is invalid
+	if startIndex == -1 || endIndex == -1 {
+		// return empty slice if either index is invalid
+		return []Record{}
 	}
 
-	// Return safely, avoiding out-of-bounds issues
-	if firstIndex >= n || lastIndex < 0 || firstIndex > lastIndex {
-		return nil
+	// Check if startIndex is after endIndex
+	if startIndex > endIndex {
+		// return empty slice if indices are in wrong order
+		return []Record{}
 	}
-	return records[firstIndex : lastIndex+1]
+
+	// Create new slice to avoid modifying original data
+	result := make([]Record, endIndex-startIndex+1)
+	// copy records between start and end indices
+	copy(result, records.records[startIndex:endIndex+1])
+	// return the copied records
+	return result
 }
 
 func (db *Database) Delete(uid string) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	delete(db.data, uid)
+	os.RemoveAll(path.Join(db.storageDir, db.name, uid))
 }
 
 // delete all records if the last timestamp is older than maxTimestamp
@@ -211,9 +263,9 @@ func (db *Database) DeleteOld() {
 	maxTimestamp := time.Now().Unix() - db.ttl*60*60
 	deleted := 0
 	for uid := range db.data {
-		userData := db.data[uid]
+		records := db.data[uid]
 		// if last record is older than maxTimestamp, delete all records
-		if userData.Records[len(userData.Records)-1].Timestamp < maxTimestamp {
+		if records.records[len(records.records)-1].Timestamp < maxTimestamp {
 			delete(db.data, uid)
 			deleted++
 		}
@@ -225,57 +277,120 @@ func (db *Database) DeleteOld() {
 
 // flush to disk
 func (db *Database) Flush() error {
+	log.Println("Maybe flushing data to disk")
 
 	db.mu.RLock()
-	defer db.mu.RUnlock()
+	// find all records that are new
+	updatedRecords := make(map[string][]Record)
+	recordCount := 0
+	for uid, records := range db.data {
+		if !records.hasChanged {
+			continue
+		}
+		for i, record := range records.records {
+			if record.isNew {
+				updatedRecords[uid] = append(updatedRecords[uid], record)
+				records.records[i].isNew = false
+				recordCount += 1
+			}
+		}
+	}
+	db.mu.RUnlock()
+	log.Println("Found", recordCount, "new records")
+	if recordCount == 0 {
+		log.Println("No new records found, skipping flush")
+		return nil
+	}
+	timestamp := time.Now().Unix()
 
-	// write to disk using db.name as the filename .json
-	data, err := json.Marshal(db.data)
-	if err != nil {
-		return err
-	}
-	if db.dataLength != len(data) {
-		db.dataLength = len(data)
-		log.Println("Flushing data to disk", db.dataLength)
-		// check if data directory exists
-		if _, err := os.Stat(".data"); os.IsNotExist(err) {
-			os.Mkdir(".data", 0755)
+	for uid := range updatedRecords {
+
+		dir := path.Join(db.storageDir, db.name, uid)
+		filename := path.Join(dir, fmt.Sprintf("%d.json", timestamp))
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			log.Println("Error creating directory:", err)
+			continue
 		}
-		err = os.WriteFile(".data/"+db.name+".json", data, 0644)
-		data = nil
+
+		jsonData, err := json.Marshal(updatedRecords[uid])
 		if err != nil {
-			log.Println("Error flushing data to disk", err)
+			log.Println("Error marshaling data:", err)
+			continue
 		}
-		return err
+
+		if err := os.WriteFile(filename, jsonData, 0644); err != nil {
+			log.Println("Error writing file:", err)
+			continue
+		}
 	}
-	log.Println("No data to flush")
+
 	return nil
 }
 
 // load from disk
 func (db *Database) Load() error {
-	// check if data directory exists
-	if _, err := os.Stat(".data"); os.IsNotExist(err) {
-		os.Mkdir(".data", 0755)
+
+	log.Println("Loading data from", db.name)
+	dir := path.Join(db.storageDir, db.name)
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		return nil // Directory doesn't exist yet, that's ok
 	}
 
-	// check if file exists
-	if _, err := os.Stat(".data/" + db.name + ".json"); os.IsNotExist(err) {
-		return nil
-	}
-
-	log.Println("Loading", db.name, "...")
-	data, err := os.ReadFile(".data/" + db.name + ".json")
+	// Get all user directories
+	userDirs, err := os.ReadDir(dir)
 	if err != nil {
-		return err
+		log.Println("Error reading directory:", err)
+		return fmt.Errorf("error reading directory %s: %w", dir, err)
 	}
-	log.Println("Unmarshalling", db.name, "...")
-	e := json.Unmarshal(data, &db.data)
-	if e != nil {
-		return e
+
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	recordCount := 0
+
+	// For each user directory
+	for _, userDir := range userDirs {
+		if !userDir.IsDir() {
+			continue
+		}
+		uid := userDir.Name()
+
+		// Get all JSON files in user directory
+		files, err := os.ReadDir(path.Join(dir, uid))
+		if err != nil {
+			log.Printf("Error reading directory for user %s: %v", uid, err)
+			continue
+		}
+
+		// Read and process each file
+		for _, file := range files {
+			if !strings.HasSuffix(file.Name(), ".json") {
+				continue
+			}
+
+			filePath := path.Join(dir, uid, file.Name())
+			data, err := os.ReadFile(filePath)
+			if err != nil {
+				log.Printf("Error reading file %s: %v", filePath, err)
+				continue
+			}
+
+			var records []Record
+			if err := json.Unmarshal(data, &records); err != nil {
+				log.Printf("Error unmarshaling data from %s: %v", filePath, err)
+				continue
+			}
+
+			// Insert each record
+			for _, record := range records {
+				db.insert(uid, record.Timestamp, record.Data, false)
+				recordCount += 1
+			}
+		}
 	}
-	db.dataLength = len(data)
-	log.Println("Loaded", db.dataLength, "records from disk")
+
+	log.Println("Loaded", recordCount, "records from", db.name)
+
 	return nil
 }
 
