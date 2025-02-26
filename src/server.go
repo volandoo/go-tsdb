@@ -1,12 +1,9 @@
 package main
 
 import (
-	"bytes"
-	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -59,26 +56,6 @@ func (c Collection) IsCollection(other string) bool {
 		return false
 	}
 	return parts1[0] == parts2[0]
-}
-
-func compressString(s string) bytes.Buffer {
-	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
-	gz.Write([]byte(s))
-	gz.Close()
-	return buf
-}
-
-func uncompressString(buf bytes.Buffer) (string, error) {
-	gz, err := gzip.NewReader(&buf)
-	if err != nil {
-		return "", err
-	}
-	b, err := io.ReadAll(gz)
-	if err != nil {
-		return "", err
-	}
-	return string(b), nil
 }
 
 func setupDatabases(storageDir string, collections []Collection) map[string]*Database {
@@ -194,7 +171,7 @@ func startServer(secretKey string, colls []string, storageDir string, storageInt
 			}
 			// check if the collection is already in the databases
 			if db := databases[*msg.Collection]; db != nil {
-				db.Insert(*msg.Uid, *msg.Ts, compressString(*msg.Data))
+				db.Insert(*msg.Uid, *msg.Ts, *msg.Data)
 			} else {
 				found := false
 				// check if the collection is not in the databases, yet

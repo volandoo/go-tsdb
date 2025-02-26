@@ -8,7 +8,7 @@ import (
 func createRecords(database *Database, uid string, count int) []Record {
 	records := make([]Record, count)
 	for i := 0; i < count; i++ {
-		database.Insert(uid, int64(i+1), compressString(fmt.Sprintf("test_%d", i+1)))
+		database.Insert(uid, int64(i+1), fmt.Sprintf("test_%d", i+1))
 	}
 	return records
 }
@@ -27,13 +27,13 @@ func TestGetLatest(t *testing.T) {
 	}
 
 	// expect records["1"].Data = "test_15"
-	if data, _ := uncompressString(records["1"].Data); data != "test_15" {
+	if data := (records["1"].Data); data != "test_15" {
 		t.Errorf("Expected test_15, got %s", data)
 	}
-	if data, _ := uncompressString(records["2"].Data); data != "test_12" {
+	if data := (records["2"].Data); data != "test_12" {
 		t.Errorf("Expected test_12, got %s", data)
 	}
-	if data, _ := uncompressString(records["3"].Data); data != "test_9" {
+	if data := (records["3"].Data); data != "test_9" {
 		t.Errorf("Expected test_9, got %s", data)
 	}
 
@@ -53,13 +53,13 @@ func TestGetLatestUpTo(t *testing.T) {
 	}
 
 	// expect records["1"].Data = "test_3"
-	if data, _ := uncompressString(records["1"].Data); data != "test_3" {
+	if data := (records["1"].Data); data != "test_3" {
 		t.Errorf("Expected test_3, got %s", data)
 	}
-	if data, _ := uncompressString(records["2"].Data); data != "test_3" {
+	if data := (records["2"].Data); data != "test_3" {
 		t.Errorf("Expected test_3, got %s", data)
 	}
-	if data, _ := uncompressString(records["3"].Data); data != "test_3" {
+	if data := (records["3"].Data); data != "test_3" {
 		t.Errorf("Expected test_3, got %s", data)
 	}
 }
@@ -76,22 +76,22 @@ func TestGetRecordsForUserRange(t *testing.T) {
 	}
 
 	// expect records[0].Data = "test_160"
-	if data, _ := uncompressString(records[0].Data); data != "test_160" {
+	if data := (records[0].Data); data != "test_160" {
 		t.Errorf("Expected test_160, got %s", data)
 	}
 
 	// expect records[1].Data = "test_161"
-	if data, _ := uncompressString(records[1].Data); data != "test_161" {
+	if data := (records[1].Data); data != "test_161" {
 		t.Errorf("Expected test_161, got %s", data)
 	}
 
 	// expect records[19].Data = "test_179"
-	if data, _ := uncompressString(records[19].Data); data != "test_179" {
+	if data := (records[19].Data); data != "test_179" {
 		t.Errorf("Expected test_179, got %s", data)
 	}
 
 	// expect records[20].Data = "test_180"
-	if data, _ := uncompressString(records[20].Data); data != "test_180" {
+	if data := (records[20].Data); data != "test_180" {
 		t.Errorf("Expected test_180, got %s", data)
 	}
 }
@@ -139,18 +139,18 @@ func TestGetLatestRecordUpTo(t *testing.T) {
 	createRecords(db, "1", 1500)
 
 	record := db.GetLatestRecordForUser("1", 1500)
-	if data, _ := uncompressString(record.Data); data != "test_1500" {
-		t.Errorf("Expected test_1500, got %s", data)
+	if record.Data != "test_1500" {
+		t.Errorf("Expected test_1500, got %s", record.Data)
 	}
 
 	record = db.GetLatestRecordForUser("1", 1501)
-	if data, _ := uncompressString(record.Data); data != "test_1500" {
-		t.Errorf("Expected test_1500, got %s", data)
+	if record.Data != "test_1500" {
+		t.Errorf("Expected test_1500, got %s", record.Data)
 	}
 
 	record = db.GetLatestRecordForUser("1", 1499)
-	if data, _ := uncompressString(record.Data); data != "test_1499" {
-		t.Errorf("Expected test_1499, got %s", data)
+	if record.Data != "test_1499" {
+		t.Errorf("Expected test_1499, got %s", record.Data)
 	}
 
 }

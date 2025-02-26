@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -13,8 +12,8 @@ import (
 )
 
 type Record struct {
-	Timestamp int64        `json:"ts"`
-	Data      bytes.Buffer `json:"data"`
+	Timestamp int64  `json:"ts"`
+	Data      string `json:"data"`
 	isNew     bool
 }
 
@@ -50,7 +49,7 @@ func NewDatabase(name string, storageDir string, ttl int64) *Database {
 	return db
 }
 
-func (db *Database) insert(uid string, ts int64, data bytes.Buffer, isNew bool) {
+func (db *Database) insert(uid string, ts int64, data string, isNew bool) {
 	// Create the record
 	record := Record{
 		Timestamp: ts,
@@ -92,7 +91,7 @@ func (db *Database) insert(uid string, ts int64, data bytes.Buffer, isNew bool) 
 }
 
 // Insert inserts a new record for a user, maintaining chronological order
-func (db *Database) Insert(uid string, ts int64, data bytes.Buffer) {
+func (db *Database) Insert(uid string, ts int64, data string) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	db.insert(uid, ts, data, true)
