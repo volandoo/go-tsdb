@@ -267,6 +267,10 @@ func (db *Database) DeleteOld() {
 		if records.records[len(records.records)-1].Timestamp < maxTimestamp {
 			delete(db.data, uid)
 			deleted++
+			if db.storageDir == "" {
+				continue
+			}
+			os.RemoveAll(path.Join(db.storageDir, db.name, uid))
 		}
 	}
 	if deleted > 0 {
@@ -276,6 +280,12 @@ func (db *Database) DeleteOld() {
 
 // flush to disk
 func (db *Database) Flush() error {
+
+	if db.storageDir == "" {
+		log.Println("Storage directory is not set, data will not be stored on disk")
+		return nil
+	}
+
 	log.Println("Maybe flushing data to disk")
 
 	db.mu.RLock()
@@ -329,6 +339,10 @@ func (db *Database) Flush() error {
 // load from disk
 func (db *Database) Load() error {
 
+	if db.storageDir == "" {
+		log.Println("Storage directory is not set, data will not be stored on disk")
+		return nil
+	}
 	log.Println("Loading data from", db.name)
 	dir := path.Join(db.storageDir, db.name)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
