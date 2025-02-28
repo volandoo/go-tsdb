@@ -178,6 +178,7 @@ func startServer(secretKey string, colls []string, storageDir string, storageInt
 				for _, collection := range collections {
 					if collection.IsCollection(*msg.Collection) {
 						databases[*msg.Collection] = NewDatabase(*msg.Collection, storageDir, int64(collection.TTL))
+						databases[*msg.Collection].Insert(*msg.Uid, *msg.Ts, *msg.Data)
 						found = true
 						break
 					}
